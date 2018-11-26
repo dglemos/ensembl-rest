@@ -254,6 +254,9 @@ my $exp = [
     ],
     'hgvsg' => [
       'X:g.200920C>G'
+    ],
+    'spdi' => [
+      'X:200919:C:G'
     ]
   }
 ];
@@ -262,6 +265,7 @@ for my $input(qw(
   rs200625439
   ENST00000381657.2:c.66C>G
   X:g.200920C>G
+  X:200919:C:G
 )) {
   $exp->[0]->{input} = $input;
   is_deeply(
@@ -283,7 +287,7 @@ my $expf = dclone($exp);
 delete($expf->[0]->{$_}) for qw(hgvsc hgvsp);
 $expf->[0]->{input} = 'rs200625439';
 is_deeply(
-  json_GET("$base/rs200625439?fields=hgvsg,id", "variant_recoder - restrict fields"),
+  json_GET("$base/rs200625439?fields=hgvsg,id,spdi", "variant_recoder - restrict fields"),
   $expf,
   'variant_recoder - GET - restrict fields'
 );
@@ -319,6 +323,9 @@ my $exp2 = [
     ],
     'hgvsg' => [
       'X:g.208208C>T'
+    ],
+    'spdi' => [
+      'X:208207:C:T'
     ]
   }
 ];
@@ -336,7 +343,7 @@ delete($expf2->[0]->{$_}) for qw(hgvsc hgvsp);
 
 is_json_POST(
   $base,
-  '{"ids" : ["rs200625439", "rs142663151"], "fields": "hgvsg,id"}',
+  '{"ids" : ["rs200625439", "rs142663151"], "fields": "hgvsg,id,spdi"}',
   [$expf->[0], $expf2->[0]],
   'variant_recoder - POST - restrict fields'
 );
