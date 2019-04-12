@@ -78,6 +78,20 @@ sub custom : Path : Args(0) : ActionClass('REST') {
 sub custom_GET { }
 sub custom_POST { }
 
+# 57
+
+sub customerror : Path : Args(0) : ActionClass('REST') {
+    my ( $self, $c, $error_msg ) = @_;
+    $c->log->error($error_msg);
+    
+    $self->status_bad_request( $c, message => $error_msg );
+}
+
+sub customerror_GET { }
+sub customerror_POST { }
+
+# 57 
+
 sub no_content: Path : Args(0) : ActionClass('REST') {
     my ( $self, $c, $error_msg ) = @_;
     $c->log->error($error_msg);

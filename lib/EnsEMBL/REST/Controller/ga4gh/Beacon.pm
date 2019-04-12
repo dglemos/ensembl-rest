@@ -85,7 +85,7 @@ sub beacon_query_GET {
     $beacon_allele_response = $c->model('ga4gh::Beacon')->beacon_query($c->request->parameters);
   } catch {
     $c->go('ReturnError', 'from_ensembl', [qq{$_}]) if $_ =~ /STACK/;
-    $c->go('ReturnError', 'custom', [qq{$_}]);
+    $c->go('ReturnError', 'customerror', [qq{$_}]);
   };
   $self->status_ok($c, entity => $beacon_allele_response);
 }
@@ -100,7 +100,7 @@ sub beacon_query_POST {
     $beacon_allele_response = $c->model('ga4gh::Beacon')->beacon_query($c->request->data);
   } catch {
     $c->go('ReturnError', 'from_ensembl', [qq{$_}]) if $_ =~ /STACK/;
-    $c->go('ReturnError', 'custom', [qq{$_}]);
+    $c->go('ReturnError', 'customerror', [qq{$_}]);
   };
   $self->status_ok($c, entity => $beacon_allele_response);
 }
