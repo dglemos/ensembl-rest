@@ -25,6 +25,7 @@ use Catalyst::Exception;
 
 use EnsEMBL::REST::Model::ga4gh::ga4gh_utils;
 use Bio::EnsEMBL::Variation::Utils::Sequence qw(trim_sequences); 
+use Data::Dumper;
 
 use Scalar::Util qw/weaken/;
 with 'Catalyst::Component::InstancePerContext';
@@ -61,8 +62,8 @@ sub get_beacon {
   }
 
   # Unique identifier of the Beacon
-  $beacon->{id} = 'ensembl';
-  $beacon->{name} = 'EBI - Ensembl';
+  $beacon->{id} = 'ensembl.' . $db_assembly;
+  $beacon->{name} = 'EBI - Ensembl' . $db_assembly;
 
   $beacon->{apiVersion} = 'v1.0.1';
   $beacon->{organization} =  $self->get_beacon_organization($db_meta);
@@ -191,10 +192,17 @@ sub beacon_query {
   if(!defined($beaconError)){ 
     # Check allele exists 
     my $reference_name = $data->{referenceName};
-    my $start = $data->{start};
-    my $end = $data->{end} ? $data->{end} : $data->{start}; 
     my $ref_allele = $data->{referenceBases};
     my $alt_allele = $data->{alternateBases} ? $data->{alternateBases} : $data->{variantType};
+
+    my $start = $data->{start} ? $data->{start} : $data->{start_min};
+    my $start_max = $data->{start_max} ? $data->{start_max} : $start;
+    my $end;
+    if($data->{end}){ $end = $data->{end}; }
+    elsif($data->{endMax}){ $end = $data->{endMax}; }
+    else{ $end = $start; }
+    my $end_min = $data->{end_min} ? $data->{end_min} : $end;
+    my $end_max = $data->{end_max} ? $data->{end_max} : $end;
 
     # Currently assumes only 1 dataset
     # TODO Multiple dataset - for each dataset
@@ -204,7 +212,9 @@ sub beacon_query {
 
     my ($exists, $dataset_response)  = $self->variant_exists($reference_name,
                                        $start,
+                                       $start_max,
                                        $end,
+                                       $end_min,
                                        $ref_allele,
                                        $alt_allele,
                                        $incl_ds_response, $dataset);
@@ -228,15 +238,27 @@ sub check_parameters {
   my ($self, $parameters) = @_;
   my $error = undef;
 
-  my @required_fields = qw/referenceName start referenceBases assemblyId/;
+  my @required_fields = qw/referenceName referenceBases assemblyId/;
 
   if($parameters->{'alternateBases'}){
     push(@required_fields, 'alternateBases');
+    push(@required_fields, 'start');
   }
-  elsif($parameters->{'variantType'}){
+  else{
     push(@required_fields, 'variantType');
-    push(@required_fields, 'end');
+    if($parameters->{'start'}){ 
+      push(@required_fields, 'start');
+      push(@required_fields, 'end'); 
+    }
+    else{
+      push(@required_fields, 'startMin');
+      push(@required_fields, 'startMax');
+      push(@required_fields, 'endMin');
+      push(@required_fields, 'endMax');
+    }
   }
+
+  print Dumper(@required_fields), "\n"; 
 
   foreach my $key (@required_fields) {
     return $self->get_beacon_error('400', "Missing mandatory parameter $key")
@@ -263,10 +285,10 @@ sub check_parameters {
   elsif(defined($parameters->{end}) && $parameters->{end} !~ /^\d+$/){
     $error = $self->get_beacon_error('400', "Invalid end");
   }
-  elsif($parameters->{referenceBases} !~ /^[AGCTN]+$/i){
+  elsif($parameters->{referenceBases} !~ /^([AGCT]+|N)$/i){
     $error = $self->get_beacon_error('400', "Invalid referenceBases");
   }
-  elsif(defined($parameters->{alternateBases}) && $parameters->{alternateBases} !~ /^[AGCTN]+$/i){
+  elsif(defined($parameters->{alternateBases}) && $parameters->{alternateBases} !~ /^([AGCT]+|N)$/i){
     $error = $self->get_beacon_error('400', "Invalid alternateBases");
   }
   elsif(defined($parameters->{variantType}) && $parameters->{variantType} !~ /^(DEL|INS|CNV|DUP|INV|DUP\:TANDEM)$/i){
@@ -354,7 +376,7 @@ sub fetch_db_meta {
 # Assembly not taken to account, assembly of REST machine
 # TODO Report by individul datasets - only 1 currently
 sub variant_exists {
-  my ($self, $reference_name, $start, $end, $ref_allele, 
+  my ($self, $reference_name, $start, $start_max, $end, $end_min, $ref_allele, 
            $alt_allele, $incl_ds_response, $dataset) = @_;
 
   my $c = $self->context();
@@ -368,8 +390,10 @@ sub variant_exists {
   my $slice_step = 5;
 
   # Position provided is zero-based
-  my $start_pos  = $start + 1; 
-  my $end_pos  = $end + 1; 
+  my $start_pos = $start + 1; 
+  my $end_pos = $end + 1;
+  my $start_max_pos = $start_max + 1;  
+  my $end_min_pos = $end_min + 1;
   my $chromosome = $reference_name;
 
   # Reference bases for this variant (starting from start). 
@@ -381,6 +405,8 @@ sub variant_exists {
 
   my $slice_start = $start_pos - $slice_step;
   my $slice_end   = $end_pos + $slice_step;
+
+  print "SLICE START-END: $slice_start-$slice_end\n";
 
   my $slice_adaptor = $c->model('Registry')->get_adaptor('homo_sapiens', 'core', 'slice');
   my $slice = $slice_adaptor->fetch_by_region('chromosome', $chromosome, $slice_start, $slice_end);
@@ -419,10 +445,18 @@ sub variant_exists {
         next;
     }
 
-    # Precise match for all types of variants 
-    if (($seq_region_start != $new_start) && ($seq_region_end != $new_end)) {
-        next;
+    # Precise match for snv or small indels 
+    if ($sv == 0 && ($seq_region_start != $new_start) && ($seq_region_end != $new_end)) {
+      next;
     }
+    # Match for structural variants
+    if($sv == 1 && $seq_region_start >= $start_max_pos && $seq_region_end <= $end_min_pos){
+      next; 
+    }
+
+    print "VARIATION: ", $vf->variation_name(), ", ", $seq_region_start-$seq_region_end, ", ", $vf->inner_start(), "-", $vf->inner_end(), "\n";
+    print "START-END: $new_start-$new_end\n";
+    print "START MAX-END MIN: $start_max_pos-$end_min_pos\n"; 
 
     # Variant is a SNV
     if ($sv == 0) {
@@ -501,7 +535,7 @@ sub get_dataset_allele_response {
     $ds_response->{'exists'} = JSON::false;
     return $ds_response;
   }
- 
+
   $ds_response->{'exists'} = JSON::true;
  
   my $externalURL = "http://www.ensembl.org";
