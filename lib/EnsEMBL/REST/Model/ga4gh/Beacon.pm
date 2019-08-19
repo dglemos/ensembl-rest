@@ -27,7 +27,6 @@ use EnsEMBL::REST::Model::ga4gh::ga4gh_utils;
 use Bio::EnsEMBL::Variation::Utils::Sequence qw(trim_sequences); 
 
 use Scalar::Util qw(reftype);
-use List::Compare;
 
 use Scalar::Util qw/weaken/;
 with 'Catalyst::Component::InstancePerContext';
