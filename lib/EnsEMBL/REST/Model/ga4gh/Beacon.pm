@@ -92,11 +92,13 @@ sub get_beacon_organization {
   my ($self) = @_;
 
   my $organization;
-  
-  my $description = "Ensembl creates, integrates and distributes reference datasets"
-                    . " and analysis tools that enable genomics."
-                    . " We are based at EMBL-EBI and our software"
-                    . " and data are freely available.";
+ 
+  my $description = "The European Bioinformatics Institute (EMBL-EBI)"
+                    . " is part of EMBL, Europe's flagship laboratory"
+                    . " for the life sciences. EMBL-EBI collaborates with"
+                    . " scientists and engineers all over the world, and"
+                    . " provide the infrastructure needed to share data"
+                    . " openly in the life sciences.";
 
   my $address = "EMBL-EBI, Wellcome Genome Campus, Hinxton, "
                 . "Cambridgeshire, CB10 1SD, UK";
@@ -110,7 +112,7 @@ sub get_beacon_organization {
   #}
   
   my $welcomeURL = "https://www.ebi.ac.uk/";
-  my $contactURL = "http://www.ensembl.org/info/about/contact/index.html";
+  my $contactURL = "https://www.ebi.ac.uk/support/";
   
 # TODO add URL to logo
   my $logoURL; 
@@ -142,6 +144,7 @@ sub get_beacon_all_datasets {
   }
 
   foreach my $dataset (@variation_set_list) {
+    print "DATASET: ", $dataset->name(), "\n";
     my $beacon_dataset = $self->get_beacon_dataset($db_meta, $dataset); 
     push(@beacon_datasets, $beacon_dataset); 
   }
@@ -345,7 +348,7 @@ sub check_parameters {
   elsif(defined($parameters->{alternateBases}) && $parameters->{alternateBases} !~ /^([AGCT]+|N)$/i){
     $error = $self->get_beacon_error('400', "Invalid alternateBases");
   }
-  elsif(defined($parameters->{variantType}) && $parameters->{variantType} !~ /^(DEL|INS|CNV|DUP|INV|DUP\:TANDEM)$/i){
+  elsif(defined($parameters->{variantType}) && $parameters->{variantType} !~ /^(DEL|DEL\:ME|INS|INS\:ME|CNV|DUP|INV|DUP\:TANDEM)$/i){
     $error = $self->get_beacon_error('400', "Invalid variantType");
   }
   elsif($parameters->{assemblyId} !~ /^(GRCh38|GRCh37)$/i){
@@ -369,19 +372,19 @@ sub get_beacon_allele_request {
   }
 
   if (exists $data->{end}) {
-    $beaconAlleleRequest->{end} = $data->{end};
+    $beaconAlleleRequest->{end} = $data->{end} + 0;
   }
   if (exists $data->{startMin}) {
-    $beaconAlleleRequest->{startMin} = $data->{startMin};
+    $beaconAlleleRequest->{startMin} = $data->{startMin} + 0;
   }
   if (exists $data->{startMax}) {
-    $beaconAlleleRequest->{startMax} = $data->{startMax};
+    $beaconAlleleRequest->{startMax} = $data->{startMax} + 0;
   }
   if (exists $data->{endMin}) {
-    $beaconAlleleRequest->{endMin} = $data->{endMin};
+    $beaconAlleleRequest->{endMin} = $data->{endMin} + 0;
   }
   if (exists $data->{endMax}) {
-    $beaconAlleleRequest->{endMax} = $data->{endMax};
+    $beaconAlleleRequest->{endMax} = $data->{endMax} + 0;
   }
 
   $beaconAlleleRequest->{datasetIds} = undef;
@@ -455,6 +458,7 @@ sub variant_exists {
  
   my $sv = 0;
   my $found = 0;
+  my $callcount = 0;
   my $vf_found;
   # Dataset error is always undef - there's no errors to be raised
   # Improve in the future
@@ -492,7 +496,7 @@ sub variant_exists {
 
   my $variation_feature_adaptor; 
 
-  if($alt_allele =~ /DEL|INS|CNV|DUP|INV|DUP:TANDEM/){
+  if($alt_allele =~ /DEL|INS|CNV|DUP|INV|DUP:TANDEM|INS:ME|DEL:ME/){
     $sv = 1; 
   }
 
@@ -564,23 +568,29 @@ sub variant_exists {
     if ((uc($ref_allele_string) eq uc($new_ref))
       && (grep(/^$new_alt$/i, @{$alt_alleles}))) {
         $found = 1;
+        $callcount += 1;
         if ($incl_ds_response) {
           $vf_found = $vf;
         }
         last;
-      } else {
-          $found = 0;
+      }
+      else {
+        $found = 0;
       }
     }
     # Variant is a SV 
     else {
-      # convert to SO term 
+      # convert to SO term
+      # There's more than one term for each type - use a list of SO terms
+      # CNV =~ DEL or DUP 
       my %terms = (
-        INS  => 'insertion',
-        DEL  => 'deletion',
-        CNV  => 'copy_number_variation',
-        DUP  => 'duplication',
-        INV  => 'inversion',
+        'INS'  => 'insertion',
+        'INS:ME'  => 'mobile_element_insertion',
+        'DEL'  => 'deletion',
+        'DEL:ME'  => 'mobile_element_deletion',
+        'CNV'  => 'copy_number_variation,copy_number_gain,copy_number_loss,deletion,duplication',
+        'DUP'  => 'duplication',
+        'INV'  => 'inversion',
         'DUP:TANDEM' => 'tandem_duplication'
       );
 
@@ -588,13 +598,18 @@ sub variant_exists {
       $so_term = defined $terms{$alt_allele} ? $terms{$alt_allele} : $alt_allele;
       $vf_so_term = $vf->class_SO_term();
 
-      if ($vf_so_term eq $so_term) {
+      print "VF SO TERM: $vf_so_term\n";
+      print "SO TERM: $so_term\n";
+
+      if ($so_term =~ /$vf_so_term/) {
         $found = 1;
+        $callcount += 1;
         if ($incl_ds_response) {
           $vf_found = $vf;
         }
         last;
-      } else {
+      }
+      else {
         $found = 0;
       }
     }
@@ -607,7 +622,7 @@ sub variant_exists {
     if ($incl_ds_response == 2 && $has_dataset && $vf_found) {
       foreach my $dataset_id (keys %variation_set_list) {
         if (exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, $vf_found, $error, $sv);
+          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, $vf_found, $error, $sv, $callcount);
           push (@dataset_response, $response);
         }
       }
@@ -622,7 +637,7 @@ sub variant_exists {
     # If it does not have a list of datasets then it the dataset response is going to be based on all available datasets
     elsif ($incl_ds_response == 2 && !$has_dataset && $vf_found) {
       foreach my $dataset_id (keys %dataset_var_found) {
-        my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, $vf_found, $error, $sv);
+        my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, $vf_found, $error, $sv, $callcount);
         push (@dataset_response, $response);
       }
     }
@@ -634,11 +649,11 @@ sub variant_exists {
       my $found_in_dataset = $vf_found ? 1 : 0;
       foreach my $dataset_id (keys %datasets) {
         if (exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, $found_in_dataset, $vf_found, $error, $sv);
+          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, $found_in_dataset, $vf_found, $error, $sv, $callcount);
           push (@dataset_response, $response);
         }
         else {
-          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, $vf_found, $error, $sv);
+          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, $vf_found, $error, $sv, $callcount);
           push (@dataset_response, $response);
         }
       }
@@ -657,7 +672,7 @@ sub variant_exists {
       %datasets = $has_dataset ? %variation_set_list : %available_datasets;
       foreach my $dataset_id (keys %datasets) {
         if (!exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, $vf_found, $error, $sv);
+          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, $vf_found, $error, $sv, $callcount);
           push (@dataset_response, $response);
         }
         else {
@@ -674,7 +689,7 @@ sub variant_exists {
 # variant feature
 # Assumes that it exists
 sub get_dataset_allele_response {
-  my ($dataset, $assemblyId, $found, $vf, $error, $sv) = @_;
+  my ($dataset, $assemblyId, $found, $vf, $error, $sv, $callcount) = @_;
 
   my $ds_response;
     $ds_response->{'datasetId'} = $dataset->short_name();
