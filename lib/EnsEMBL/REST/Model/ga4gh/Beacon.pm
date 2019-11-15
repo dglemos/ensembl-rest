@@ -26,6 +26,8 @@ use Catalyst::Exception;
 use EnsEMBL::REST::Model::ga4gh::ga4gh_utils;
 use Bio::EnsEMBL::Variation::Utils::Sequence qw(trim_sequences); 
 
+use Data::Dumper;
+
 use Scalar::Util qw/weaken/;
 with 'Catalyst::Component::InstancePerContext';
 
@@ -459,7 +461,7 @@ sub variant_exists {
   my $sv = 0;
   my $found = 0;
   my $callcount = 0;
-  my $vf_found;
+  my @vf_found;
   # Dataset error is always undef - there's no errors to be raised
   # Improve in the future
   my $error;
@@ -570,13 +572,14 @@ sub variant_exists {
         $found = 1;
         $callcount += 1;
         if ($incl_ds_response) {
-          $vf_found = $vf;
+          print "VARIANT: ", $vf->name(), "\n";
+          push (@vf_found, $vf);
         }
-        last;
+        # last;
       }
-      else {
-        $found = 0;
-      }
+      # else {
+      #   $found = 0;
+      # }
     }
     # Variant is a SV 
     else {
@@ -598,31 +601,32 @@ sub variant_exists {
       $so_term = defined $terms{$alt_allele} ? $terms{$alt_allele} : $alt_allele;
       $vf_so_term = $vf->class_SO_term();
 
-      print "VF SO TERM: $vf_so_term\n";
-      print "SO TERM: $so_term\n";
-
       if ($so_term =~ /$vf_so_term/) {
         $found = 1;
         $callcount += 1;
         if ($incl_ds_response) {
-          $vf_found = $vf;
+          print "VARIANT: ", $vf->variation_name(), "\n";
+          push (@vf_found, $vf);
         }
-        last;
+        # last;
       }
-      else {
-        $found = 0;
-      }
+      # else {
+      #   $found = 0;
+      # }
     }
   }
+
+  print "\n*** N VF: ", scalar(@vf_found), ", FOUND: $found, VARIANTCOUNT: $callcount, DATASET: ", Dumper(\%dataset_var_found), "\n";
 
   if ($incl_ds_response) {
     my %datasets;
     # HIT - returns only datasets that have the queried variant
     # If has a list of datasets to query and a variant was found then print dataset response
-    if ($incl_ds_response == 2 && $has_dataset && $vf_found) {
+    if ($incl_ds_response == 2 && $has_dataset && @vf_found) {
+      print "1!!\n";
       foreach my $dataset_id (keys %variation_set_list) {
         if (exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, $vf_found, $error, $sv, $callcount);
+          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, \@vf_found, $error, $sv, $callcount);
           push (@dataset_response, $response);
         }
       }
@@ -635,9 +639,10 @@ sub variant_exists {
     }
     # HIT - returns only datasets that have the queried variant
     # If it does not have a list of datasets then it the dataset response is going to be based on all available datasets
-    elsif ($incl_ds_response == 2 && !$has_dataset && $vf_found) {
+    elsif ($incl_ds_response == 2 && !$has_dataset && @vf_found) {
+      print "2!!\n";
       foreach my $dataset_id (keys %dataset_var_found) {
-        my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, $vf_found, $error, $sv, $callcount);
+        my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, \@vf_found, $error, $sv, $callcount);
         push (@dataset_response, $response);
       }
     }
@@ -645,16 +650,18 @@ sub variant_exists {
     # ALL - returns all datasets even those that don't have the queried variant
     # If there is a list of datasets then dataset response returns all of them, if not then returns all available datasets
     elsif ($incl_ds_response == 1) {
+      print "3!!\n";
       %datasets = $has_dataset ? %variation_set_list : %available_datasets;
-      my $found_in_dataset = $vf_found ? 1 : 0;
+      my $found_in_dataset = @vf_found ? 1 : 0;
       foreach my $dataset_id (keys %datasets) {
         if (exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, $found_in_dataset, $vf_found, $error, $sv, $callcount);
+          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, $found_in_dataset, \@vf_found, $error, $sv, $callcount);
           push (@dataset_response, $response);
         }
         else {
-          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, $vf_found, $error, $sv, $callcount);
-          push (@dataset_response, $response);
+           print "4!!\n";
+           my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, \@vf_found, $error, $sv, $callcount);
+           push (@dataset_response, $response);
         }
       }
       # Variant wasn't found in any of the input datasets
@@ -668,15 +675,19 @@ sub variant_exists {
     # MISS - means opposite to HIT value, only datasets that don't have the queried variant
     # Same as HIT but only the datasets that don't have the variant are returned
     elsif ($incl_ds_response == 3) {
-      $found = 0;
+      print "5!!\n";
       %datasets = $has_dataset ? %variation_set_list : %available_datasets;
       foreach my $dataset_id (keys %datasets) {
         if (!exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, $vf_found, $error, $sv, $callcount);
+          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, \@vf_found, $error, $sv, $callcount);
           push (@dataset_response, $response);
         }
-        else {
-          $found = 1;
+      }
+      # Variant wasn't found in any of the input datasets
+      if ($has_dataset) {
+        my @intersection = grep { exists $dataset_var_found{$_} } keys %variation_set_list;
+        if (scalar(@intersection) == 0) {
+          $found = 0;
         }
       }
     }
@@ -692,11 +703,12 @@ sub get_dataset_allele_response {
   my ($dataset, $assemblyId, $found, $vf, $error, $sv, $callcount) = @_;
 
   my $ds_response;
+
     $ds_response->{'datasetId'} = $dataset->short_name();
     $ds_response->{'exists'} = undef;
     $ds_response->{'error'} = undef;
     $ds_response->{'frequency'} = undef;
-    $ds_response->{'variantCount'} = undef;
+    # $ds_response->{'variantCount'} = undef;
     $ds_response->{'callCount'} = undef;
     $ds_response->{'sampleCount'} = undef;
     $ds_response->{'note'} = undef;
@@ -709,10 +721,12 @@ sub get_dataset_allele_response {
       return $ds_response;
     }
     if ($found == 0) {
+      $ds_response->{'variantCount'} = undef;
       $ds_response->{'exists'} = JSON::false;
       return $ds_response;
     }
 
+    $ds_response->{'variantCount'} = $callcount;
     $ds_response->{'exists'} = JSON::true;
 
     my $externalURL = "http://www.ensembl.org";
@@ -720,12 +734,20 @@ sub get_dataset_allele_response {
       $externalURL = "http://grch37.ensembl.org";
     }
 
-    if($sv == 1 && defined $vf) {
-      $externalURL .= "/Homo_sapiens/StructuralVariation/Explore?sv=" . $vf->variation_name();
+    if($vf) {
+    my $url = '';
+      foreach my $variant (@{$vf}) {
+        if($sv == 1) {
+          $url .= ', ' . $externalURL . "/Homo_sapiens/StructuralVariation/Explore?sv=" . $variant->variation_name();
+        }
+        elsif($sv == 0) {
+          $url .= ', ' . $externalURL . "/Homo_sapiens/Variation/Explore?v=" . $variant->name();
+        }
+      }
+    $url =~ s/, //;
+    $externalURL = $url;
     }
-    elsif($sv == 0 && defined $vf) {
-      $externalURL .= "/Homo_sapiens/Variation/Explore?v=" . $vf->name();
-    }
+
     $ds_response->{'externalUrl'} = $externalURL;
 
   return $ds_response;
