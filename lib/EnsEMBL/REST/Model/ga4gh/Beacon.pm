@@ -473,6 +473,8 @@ sub variant_exists {
   # Datasets specified in the input
   my %variation_set_list;
 
+  my %variant_dt;
+
   my $slice_step = 5;
 
   # Position provided is zero-based
@@ -557,9 +559,13 @@ sub variant_exists {
 
     # All datasets where variant was found
     my $datasets_found = $vf->get_all_VariationSets();
+    my @l;
     foreach my $set (@$datasets_found) {
-      $dataset_var_found{$set->dbID()} = $set;
+      my $dt_id = $set->dbID();
+      $dataset_var_found{$dt_id} = $set;
+      push (@l, $dt_id);
     }
+    $variant_dt{$vf->variation_name} = \@l;
 
     # Variant is a SNV
     if ($sv == 0) {
@@ -569,6 +575,7 @@ sub variant_exists {
     if ((uc($ref_allele_string) eq uc($new_ref))
       && (grep(/^$new_alt$/i, @{$alt_alleles}))) {
         $found = 1;
+
         $callcount += 1;
         if ($incl_ds_response) {
           push (@vf_found, $vf);
@@ -601,6 +608,7 @@ sub variant_exists {
 
       if ($so_term =~ /$vf_so_term/) {
         $found = 1;
+
         $callcount += 1;
         if ($incl_ds_response) {
           push (@vf_found, $vf);
@@ -613,8 +621,6 @@ sub variant_exists {
     }
   }
 
-  # print "\n*** N VF: ", scalar(@vf_found), ", FOUND: $found, VARIANTCOUNT: $callcount, DATASET: ", Dumper(\%dataset_var_found), "\n";
-
   if ($incl_ds_response) {
     my %datasets;
     # HIT - returns only datasets that have the queried variant
@@ -622,7 +628,7 @@ sub variant_exists {
     if ($incl_ds_response == 2 && $has_dataset && @vf_found) {
       foreach my $dataset_id (keys %variation_set_list) {
         if (exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, \@vf_found, $error, $sv, $callcount);
+          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, \@vf_found, $error, $sv, $callcount, \%variant_dt);
           push (@dataset_response, $response);
         }
       }
@@ -637,7 +643,7 @@ sub variant_exists {
     # If it does not have a list of datasets then it the dataset response is going to be based on all available datasets
     elsif ($incl_ds_response == 2 && !$has_dataset && @vf_found) {
       foreach my $dataset_id (keys %dataset_var_found) {
-        my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, \@vf_found, $error, $sv, $callcount);
+        my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, 1, \@vf_found, $error, $sv, $callcount, \%variant_dt);
         push (@dataset_response, $response);
       }
     }
@@ -649,11 +655,11 @@ sub variant_exists {
       my $found_in_dataset = @vf_found ? 1 : 0;
       foreach my $dataset_id (keys %datasets) {
         if (exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, $found_in_dataset, \@vf_found, $error, $sv, $callcount);
+          my $response = get_dataset_allele_response($dataset_var_found{$dataset_id}, $assemblyId, $found_in_dataset, \@vf_found, $error, $sv, $callcount, \%variant_dt);
           push (@dataset_response, $response);
         }
         else {
-           my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, \@vf_found, $error, $sv, $callcount);
+           my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, \@vf_found, $error, $sv, $callcount, \%variant_dt);
            push (@dataset_response, $response);
         }
       }
@@ -671,7 +677,7 @@ sub variant_exists {
       %datasets = $has_dataset ? %variation_set_list : %available_datasets;
       foreach my $dataset_id (keys %datasets) {
         if (!exists $dataset_var_found{$dataset_id}) {
-          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, \@vf_found, $error, $sv, $callcount);
+          my $response = get_dataset_allele_response($datasets{$dataset_id}, $assemblyId, 0, \@vf_found, $error, $sv, $callcount, \%variant_dt);
           push (@dataset_response, $response);
         }
       }
@@ -692,8 +698,9 @@ sub variant_exists {
 # variant feature
 # Assumes that it exists
 sub get_dataset_allele_response {
-  my ($dataset, $assemblyId, $found, $vf, $error, $sv, $callcount) = @_;
+  my ($dataset, $assemblyId, $found, $vf, $error, $sv, $callcount, $variant_dt) = @_;
 
+  my $dataset_id = $dataset->dbID();
   my $ds_response;
 
     $ds_response->{'datasetId'} = $dataset->short_name();
@@ -718,7 +725,6 @@ sub get_dataset_allele_response {
       return $ds_response;
     }
 
-    $ds_response->{'variantCount'} = $callcount;
     $ds_response->{'exists'} = JSON::true;
 
     my $externalURL = "http://www.ensembl.org";
@@ -726,23 +732,51 @@ sub get_dataset_allele_response {
       $externalURL = "http://grch37.ensembl.org";
     }
 
+    my $count = 0;
+
     if($vf) {
-    my $url = '';
+      my $url = '';
+      my $var_name;
       foreach my $variant (@{$vf}) {
         if($sv == 1) {
-          $url .= ', ' . $externalURL . "/Homo_sapiens/StructuralVariation/Explore?sv=" . $variant->variation_name();
+          $var_name = $variant->variation_name();
+          $d = "sv=";
         }
-        elsif($sv == 0) {
-          $url .= ', ' . $externalURL . "/Homo_sapiens/Variation/Explore?v=" . $variant->name();
+        else {
+          $var_name = $variant->name();
+          $d = "v=";
         }
+
+        my %x = %{$variant_dt};
+        my $datasets = $x{$var_name};
+        my $contains = contains_value($dataset_id, $datasets);
+        if($contains) {
+          $count += 1;
+          $url .= ', ' . $externalURL . "/Homo_sapiens/StructuralVariation/Explore?" . $d . " . $var_name;
+        }
+    #    elsif($sv == 0) {
+    #      $url .= ', ' . $externalURL . "/Homo_sapiens/Variation/Explore?v=" . $variant->name();
       }
-    $url =~ s/, //;
-    $externalURL = $url;
+      $url =~ s/, //;
+      $externalURL = $url;
     }
+
+    $ds_response->{'variantCount'} = $count;
 
     $ds_response->{'externalUrl'} = $externalURL;
 
   return $ds_response;
+}
+
+sub contains_value {
+  my ($value, $array) = @_;
+
+  my $related; 
+  foreach my $i ($array){ 
+    if (grep $_ eq $value, @{$i}) { $related = 1; } 
+  }
+
+  return $related; 
 }
 
 with 'EnsEMBL::REST::Role::Content';
