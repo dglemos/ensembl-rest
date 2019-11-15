@@ -96,10 +96,10 @@ sub get_beacon_organization {
   my $organization;
  
   my $description = "The European Bioinformatics Institute (EMBL-EBI)"
-                    . " is part of EMBL, Europe's flagship laboratory"
-                    . " for the life sciences. EMBL-EBI collaborates with"
-                    . " scientists and engineers all over the world, and"
-                    . " provide the infrastructure needed to share data"
+                    . " is part of EMBL, an intergovernmental organisation"
+                    . " set up to promote molecular biology across Europe."
+                    . " EMBL-EBI collaborates with over 20 member states"
+                    . " to provide the infrastructure needed to share data"
                     . " openly in the life sciences.";
 
   my $address = "EMBL-EBI, Wellcome Genome Campus, Hinxton, "
