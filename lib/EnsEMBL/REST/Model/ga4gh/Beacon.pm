@@ -737,14 +737,15 @@ sub get_dataset_allele_response {
     if($vf) {
       my $url = '';
       my $var_name;
+      my $delimiter;
       foreach my $variant (@{$vf}) {
         if($sv == 1) {
           $var_name = $variant->variation_name();
-          $d = "sv=";
+          $delimiter = "StructuralVariation/Explore?sv=";
         }
         else {
           $var_name = $variant->name();
-          $d = "v=";
+          $delimiter = "Variation/Explore?v=";
         }
 
         my %x = %{$variant_dt};
@@ -752,7 +753,7 @@ sub get_dataset_allele_response {
         my $contains = contains_value($dataset_id, $datasets);
         if($contains) {
           $count += 1;
-          $url .= ', ' . $externalURL . "/Homo_sapiens/StructuralVariation/Explore?" . $d . " . $var_name;
+          $url .= ', ' . $externalURL . "/Homo_sapiens/" . $delimiter . $var_name;
         }
     #    elsif($sv == 0) {
     #      $url .= ', ' . $externalURL . "/Homo_sapiens/Variation/Explore?v=" . $variant->name();
