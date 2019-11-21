@@ -243,7 +243,7 @@ sub beacon_query {
     my $ref_allele = $data->{referenceBases};
     my $alt_allele = $data->{alternateBases} ? $data->{alternateBases} : $data->{variantType};
 
-    # SNV or small indels have a start (or start-end)
+    # SNV or small indels have a start
     # Structural variants can have start-end or startMin/startMax-endMin/endMax
     my $start = $data->{start} ? $data->{start} : $data->{startMin};
     my $start_max = $data->{startMax} ? $data->{startMax} : $start;
@@ -368,6 +368,10 @@ sub get_beacon_allele_request {
 
   for my $field (qw/referenceName start referenceBases alternateBases variantType assemblyId/) {
     $beaconAlleleRequest->{$field} = $data->{$field};
+  }
+
+  if (exists $data->{start}) {
+    $beaconAlleleRequest->{start} = $data->{start} + 0;
   }
 
   if (exists $data->{end}) {
@@ -549,33 +553,37 @@ sub variant_exists {
         next;
     }
 
-    # Precise match for snv or small indels - end does not make a difference 
-    if ($sv == 0 && ($seq_region_start != $new_start) && ($seq_region_end != $new_end)) {
+    print "$start_pos-$end_pos, $new_start-$new_end\n";
+
+    # Precise match for snv or small indels - end does not make a difference
+    if ($sv == 0 && ($seq_region_start != $start_pos) && ($seq_region_end != $end_pos)) {
       next;
     }
     # Match for structural variants
     if($sv == 1){
-      next unless ($seq_region_start >= $new_start && $seq_region_start <= $start_max_pos && $seq_region_end >= $end_min_pos && $seq_region_end <= $new_end);
+      next unless ($seq_region_start >= $start_pos && $seq_region_start <= $start_max_pos && $seq_region_end >= $end_min_pos && $seq_region_end <= $end_pos);
     }
-
-    # All datasets where variant was found
-    my $datasets_found = $vf->get_all_VariationSets();
-    my @list_datasetids;
-    foreach my $set (@$datasets_found) {
-      my $dt_id = $set->dbID();
-      $dataset_var_found{$dt_id} = $set;
-      push (@list_datasetids, $dt_id);
-    }
-    $variant_dt{$vf->variation_name} = \@list_datasetids;
 
     # Variant is a SNV
     if ($sv == 0) {
     $ref_allele_string = $vf->ref_allele_string();
     $alt_alleles = $vf->alt_alleles();
 
-    if ((uc($ref_allele_string) eq uc($new_ref))
-      && (grep(/^$new_alt$/i, @{$alt_alleles}))) {
+    # Some ins/del have allele string 'G/-', others have TG/T
+    # trim sequence doesn't always work
+    if ((uc($ref_allele_string) eq uc($ref_allele) || (uc($ref_allele_string) eq uc($new_ref)))
+      && (grep(/^$alt_allele$/i, @{$alt_alleles}) || grep(/^$new_alt$/i, @{$alt_alleles}))) {
         $found = 1;
+
+        # Checks datasets only for variants that match
+        my $datasets_found = $vf->get_all_VariationSets();
+        my @list_datasetids;
+        foreach my $set (@$datasets_found) {
+          my $dt_id = $set->dbID();
+          $dataset_var_found{$dt_id} = $set;
+          push (@list_datasetids, $dt_id);
+        }
+        $variant_dt{$vf->variation_name} = \@list_datasetids;
 
         if ($incl_ds_response) {
           push (@vf_found, $vf);
@@ -588,13 +596,13 @@ sub variant_exists {
       # There's more than one term for each type - use a list of SO terms
       # CNV =~ DEL or DUP 
       my %terms = (
-        'INS'  => 'insertion',
-        'INS:ME'  => 'mobile_element_insertion',
-        'DEL'  => 'deletion',
-        'DEL:ME'  => 'mobile_element_deletion',
-        'CNV'  => 'copy_number_variation,copy_number_gain,copy_number_loss,deletion,duplication',
-        'DUP'  => 'duplication',
-        'INV'  => 'inversion',
+        'INS'    => 'insertion',
+        'INS:ME' => 'mobile_element_insertion',
+        'DEL'    => 'deletion',
+        'DEL:ME' => 'mobile_element_deletion',
+        'CNV'    => 'copy_number_variation,copy_number_gain,copy_number_loss,deletion,duplication',
+        'DUP'    => 'duplication',
+        'INV'    => 'inversion',
         'DUP:TANDEM' => 'tandem_duplication'
       );
 
@@ -604,6 +612,16 @@ sub variant_exists {
 
       if ($so_term =~ /$vf_so_term/) {
         $found = 1;
+
+        # Checks datasets only for variants that match
+        my $datasets_found = $vf->get_all_VariationSets();
+        my @list_datasetids;
+        foreach my $set (@$datasets_found) {
+          my $dt_id = $set->dbID();
+          $dataset_var_found{$dt_id} = $set;
+          push (@list_datasetids, $dt_id);
+        }
+        $variant_dt{$vf->variation_name} = \@list_datasetids;
 
         if ($incl_ds_response) {
           push (@vf_found, $vf);
