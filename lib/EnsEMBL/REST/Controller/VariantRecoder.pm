@@ -45,6 +45,7 @@ has valid_user_params => (
     failed
     minimal
     fields
+    vcf_string
 
     pick
     pick_allele
